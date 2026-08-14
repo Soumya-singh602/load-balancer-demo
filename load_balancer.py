@@ -1,15 +1,37 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import requests
 
+# Round Robin
+#BACKEND_SERVERS = [
+    #"http://127.0.0.1:8001",
+    #"http://127.0.0.1:8002",
+    #"http://127.0.0.1:8003",
+#]
 
 BACKEND_SERVERS = [
-    "http://127.0.0.1:8001",
-    "http://127.0.0.1:8002",
-    "http://127.0.0.1:8003",
+    {
+        "url": "http://127.0.0.1:8001",
+        "weight": 3
+    },
+    {
+        "url": "http://127.0.0.1:8002",
+        "weight": 2
+    },
+    {
+        "url": "http://127.0.0.1:8003",
+        "weight": 1
+    }
 ]
 
+weighted_servers = []
+
+for server in BACKEND_SERVERS:
+    for _ in range(server["weight"]):
+        weighted_servers.append(server["url"])
 
 current_server = 0
+
+
 
 
 class LoadBalancerHandler(BaseHTTPRequestHandler):
@@ -19,12 +41,12 @@ class LoadBalancerHandler(BaseHTTPRequestHandler):
         global current_server
 
         # Select current backend server
-        server = BACKEND_SERVERS[current_server]
+        server = weighted_servers[current_server]
 
         # Move to next server
         current_server = (
             current_server + 1
-        ) % len(BACKEND_SERVERS)
+        ) % len(weighted_servers)
 
         print(f"Request forwarded to {server}")
 
