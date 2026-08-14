@@ -1,94 +1,167 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from flask import Flask, Response
 import requests
+import threading
 
-# Round Robin
-#BACKEND_SERVERS = [
-    #"http://127.0.0.1:8001",
-    #"http://127.0.0.1:8002",
-    #"http://127.0.0.1:8003",
-#]
+
+app = Flask(__name__)
+
+
+# ============================================================
+# ROUND ROBIN
+# ============================================================
+
+# BACKEND_SERVERS = [
+#     "http://127.0.0.1:8001",
+#     "http://127.0.0.1:8002",
+#     "http://127.0.0.1:8003",
+# ]
+
+# current_server = 0
+
+
+# ============================================================
+# WEIGHTED ROUND ROBIN
+# ============================================================
+
+# BACKEND_SERVERS = [
+#     {
+#         "url": "http://127.0.0.1:8001",
+#         "weight": 3
+#     },
+#     {
+#         "url": "http://127.0.0.1:8002",
+#         "weight": 2
+#     },
+#     {
+#         "url": "http://127.0.0.1:8003",
+#         "weight": 1
+#     }
+# ]
+
+# weighted_servers = []
+
+# for server in BACKEND_SERVERS:
+#     for _ in range(server["weight"]):
+#         weighted_servers.append(server["url"])
+
+# current_server = 0
+
+
+# ============================================================
+# LEAST CONNECTIONS
+# ============================================================
 
 BACKEND_SERVERS = [
     {
         "url": "http://127.0.0.1:8001",
-        "weight": 3
+        "connections": 0
     },
     {
         "url": "http://127.0.0.1:8002",
-        "weight": 2
+        "connections": 0
     },
     {
         "url": "http://127.0.0.1:8003",
-        "weight": 1
+        "connections": 0
     }
 ]
 
-weighted_servers = []
 
-for server in BACKEND_SERVERS:
-    for _ in range(server["weight"]):
-        weighted_servers.append(server["url"])
-
-current_server = 0
+# Multiple requests ke time counter safely update karne ke liye
+lock = threading.Lock()
 
 
+# ============================================================
+# LOAD BALANCER ROUTE
+# ============================================================
 
+@app.route("/", defaults={"path": ""}, methods=["GET"])
+@app.route("/<path:path>", methods=["GET"])
+def load_balance(path):
 
-class LoadBalancerHandler(BaseHTTPRequestHandler):
+    # ========================================================
+    # LEAST CONNECTION SERVER SELECT
+    # ========================================================
 
-    def do_GET(self):
+    with lock:
 
-        global current_server
+        server = min(
+            BACKEND_SERVERS,
+            key=lambda server: server["connections"]
+        )
 
-        # Select current backend server
-        server = weighted_servers[current_server]
+        # Selected server ki connection count increase
+        server["connections"] += 1
 
-        # Move to next server
-        current_server = (
-            current_server + 1
-        ) % len(weighted_servers)
+        print(
+            f"Request forwarded to {server['url']} "
+            f"| Active connections: "
+            f"{server['connections']}"
+        )
 
-        print(f"Request forwarded to {server}")
+    try:
 
-        try:
+        # Backend URL
+        backend_url = server["url"]
 
-            response = requests.get(
-                server + self.path,
-                timeout=5
-            )
+        if path:
+            backend_url += "/" + path
 
-            self.send_response(response.status_code)
+        # Backend ko request
+        response = requests.get(
+            backend_url,
+            timeout=15
+        )
 
-            self.send_header(
+        # Backend response client ko return
+        return Response(
+            response.content,
+            status=response.status_code,
+            content_type=response.headers.get(
                 "Content-Type",
                 "application/json"
             )
+        )
 
-            self.end_headers()
+    except requests.RequestException:
 
-            self.wfile.write(response.content)
+        return Response(
+            '{"error": "Backend server unavailable"}',
+            status=503,
+            content_type="application/json"
+        )
 
-        except requests.RequestException:
+    finally:
 
-            self.send_response(503)
+        # ====================================================
+        # REQUEST COMPLETE
+        # ====================================================
 
-            self.send_header(
-                "Content-Type",
-                "application/json"
+        with lock:
+
+            server["connections"] -= 1
+
+            print(
+                f"Request completed on "
+                f"{server['url']} "
+                f"| Active connections: "
+                f"{server['connections']}"
             )
 
-            self.end_headers()
 
-            self.wfile.write(
-                b'{"error": "Backend server unavailable"}'
-            )
+# ============================================================
+# LOAD BALANCER START
+# ============================================================
 
+if __name__ == "__main__":
 
-load_balancer = HTTPServer(
-    ("127.0.0.1", 8000),
-    LoadBalancerHandler
-)
+    print(
+        "Flask Least Connections "
+        "Load Balancer running on port 8000"
+    )
 
-print("Load Balancer running on port 8000")
-
-load_balancer.serve_forever()
+    app.run(
+        host="127.0.0.1",
+        port=8000,
+        threaded=True
+    )

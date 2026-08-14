@@ -1,57 +1,62 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from flask import Flask, jsonify
 import sys
-import json
+import time
 
 
 # Command line se port number lena
 PORT = int(sys.argv[1])
 
+app = Flask(__name__)
 
-class BackendHandler(BaseHTTPRequestHandler):
+# Active connections count
+active_connections = 0
 
-    def do_GET(self):
 
-        response = {
+@app.route("/", methods=["GET"])
+def home():
+
+    global active_connections
+
+    # New request active hui
+    active_connections += 1
+
+    print(
+        f"[Server-{PORT}] "
+        f"Active connections: {active_connections}"
+    )
+
+    try:
+
+        # Request ko 10 seconds tak active rakhenge
+        time.sleep(10)
+
+        return jsonify({
             "server": f"Server-{PORT}",
             "port": PORT,
-            "message": "Hello from backend server"
-        }
+            "active_connections": active_connections,
+            "message": "Hello from Flask backend server"
+        })
 
-        response_data = json.dumps(response).encode()
+    finally:
 
-        self.send_response(200)
+        # Request complete hone par count decrease
+        active_connections -= 1
 
-        self.send_header(
-            "Content-Type",
-            "application/json"
-        )
-
-        self.send_header(
-            "Content-Length",
-            str(len(response_data))
-        )
-
-        self.end_headers()
-
-        self.wfile.write(response_data)
-
-    def log_message(self, format, *args):
         print(
             f"[Server-{PORT}] "
-            f"{self.address_string()} - "
-            f"{format % args}"
+            f"Active connections: {active_connections}"
         )
 
 
-# Backend server start
-server = HTTPServer(
-    ("127.0.0.1", PORT),
-    BackendHandler
-)
+if __name__ == "__main__":
 
-print(
-    f"Backend server running on "
-    f"http://127.0.0.1:{PORT}"
-)
+    print(
+        f"Flask backend server running on "
+        f"http://127.0.0.1:{PORT}"
+    )
 
-server.serve_forever()
+    app.run(
+        host="127.0.0.1",
+        port=PORT,
+        threaded=True
+    )
