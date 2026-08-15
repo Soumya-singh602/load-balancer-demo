@@ -2,6 +2,7 @@ from flask import Flask, Response, request
 import requests
 import threading
 import hashlib
+import random
 
 
 app = Flask(__name__)
@@ -99,6 +100,17 @@ app = Flask(__name__)
 # IP HASH
 # ============================================================
 
+# BACKEND_SERVERS = [
+#     "http://127.0.0.1:8001",
+#     "http://127.0.0.1:8002",
+#     "http://127.0.0.1:8003"
+# ]
+
+
+# ============================================================
+# RANDOM
+# ============================================================
+
 BACKEND_SERVERS = [
     "http://127.0.0.1:8001",
     "http://127.0.0.1:8002",
@@ -115,27 +127,13 @@ BACKEND_SERVERS = [
 def load_balance(path):
 
     # ========================================================
-    # IP HASH SERVER SELECTION
+    # RANDOM SERVER SELECTION
     # ========================================================
 
-    client_ip = request.remote_addr
-
-    # Client IP ko hash mein convert
-    hash_value = int(
-        hashlib.md5(
-            client_ip.encode()
-        ).hexdigest(),
-        16
-    )
-
-    # Hash ke basis par server select
-    server_index = hash_value % len(BACKEND_SERVERS)
-
-    backend_url = BACKEND_SERVERS[server_index]
+    backend_url = random.choice(BACKEND_SERVERS)
 
     print(
-        f"Client IP: {client_ip} "
-        f"| Hash: {hash_value} "
+        f"Random selection "
         f"| Forwarded to: {backend_url}"
     )
 
@@ -177,7 +175,7 @@ def load_balance(path):
 if __name__ == "__main__":
 
     print(
-        "Flask IP Hash Load Balancer "
+        "Flask Random Load Balancer "
         "running on port 8000"
     )
 
