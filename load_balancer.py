@@ -51,18 +51,41 @@ app = Flask(__name__)
 # LEAST CONNECTIONS
 # ============================================================
 
+# BACKEND_SERVERS = [
+#     {
+#         "url": "http://127.0.0.1:8001",
+#         "connections": 0
+#     },
+#     {
+#         "url": "http://127.0.0.1:8002",
+#         "connections": 0
+#     },
+#     {
+#         "url": "http://127.0.0.1:8003",
+#         "connections": 0
+#     }
+# ]
+
+
+# ============================================================
+# WEIGHTED LEAST CONNECTIONS
+# ============================================================
+
 BACKEND_SERVERS = [
     {
         "url": "http://127.0.0.1:8001",
-        "connections": 0
+        "connections": 0,
+        "weight": 3
     },
     {
         "url": "http://127.0.0.1:8002",
-        "connections": 0
+        "connections": 0,
+        "weight": 2
     },
     {
         "url": "http://127.0.0.1:8003",
-        "connections": 0
+        "connections": 0,
+        "weight": 1
     }
 ]
 
@@ -80,40 +103,42 @@ lock = threading.Lock()
 def load_balance(path):
 
     # ========================================================
-    # LEAST CONNECTION SERVER SELECT
+    # WEIGHTED LEAST CONNECTION
     # ========================================================
 
     with lock:
 
         server = min(
             BACKEND_SERVERS,
-            key=lambda server: server["connections"]
+            key=lambda server:
+                server["connections"] / server["weight"]
         )
 
-        # Selected server ki connection count increase
         server["connections"] += 1
+
+        load_ratio = (
+            server["connections"] / server["weight"]
+        )
 
         print(
             f"Request forwarded to {server['url']} "
-            f"| Active connections: "
-            f"{server['connections']}"
+            f"| Weight: {server['weight']} "
+            f"| Active connections: {server['connections']} "
+            f"| Load Ratio: {load_ratio:.2f}"
         )
 
     try:
 
-        # Backend URL
         backend_url = server["url"]
 
         if path:
             backend_url += "/" + path
 
-        # Backend ko request
         response = requests.get(
             backend_url,
             timeout=15
         )
 
-        # Backend response client ko return
         return Response(
             response.content,
             status=response.status_code,
@@ -133,19 +158,20 @@ def load_balance(path):
 
     finally:
 
-        # ====================================================
-        # REQUEST COMPLETE
-        # ====================================================
-
         with lock:
 
             server["connections"] -= 1
 
+            load_ratio = (
+                server["connections"] / server["weight"]
+            )
+
             print(
                 f"Request completed on "
                 f"{server['url']} "
-                f"| Active connections: "
-                f"{server['connections']}"
+                f"| Weight: {server['weight']} "
+                f"| Active connections: {server['connections']} "
+                f"| Load Ratio: {load_ratio:.2f}"
             )
 
 
@@ -156,8 +182,15 @@ def load_balance(path):
 if __name__ == "__main__":
 
     print(
-        "Flask Least Connections "
+        "Flask Weighted Least Connections "
         "Load Balancer running on port 8000"
+    )
+
+    print(
+        "Weights: "
+        "8001=3, "
+        "8002=2, "
+        "8003=1"
     )
 
     app.run(
