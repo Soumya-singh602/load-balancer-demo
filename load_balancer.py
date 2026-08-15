@@ -1,6 +1,7 @@
-from flask import Flask, Response
+from flask import Flask, Response, request
 import requests
 import threading
+import hashlib
 
 
 app = Flask(__name__)
@@ -66,32 +67,43 @@ app = Flask(__name__)
 #     }
 # ]
 
+# lock = threading.Lock()
+
 
 # ============================================================
 # WEIGHTED LEAST CONNECTIONS
 # ============================================================
 
+# BACKEND_SERVERS = [
+#     {
+#         "url": "http://127.0.0.1:8001",
+#         "weight": 3,
+#         "connections": 0
+#     },
+#     {
+#         "url": "http://127.0.0.1:8002",
+#         "weight": 2,
+#         "connections": 0
+#     },
+#     {
+#         "url": "http://127.0.0.1:8003",
+#         "weight": 1,
+#         "connections": 0
+#     }
+# ]
+
+# lock = threading.Lock()
+
+
+# ============================================================
+# IP HASH
+# ============================================================
+
 BACKEND_SERVERS = [
-    {
-        "url": "http://127.0.0.1:8001",
-        "connections": 0,
-        "weight": 3
-    },
-    {
-        "url": "http://127.0.0.1:8002",
-        "connections": 0,
-        "weight": 2
-    },
-    {
-        "url": "http://127.0.0.1:8003",
-        "connections": 0,
-        "weight": 1
-    }
+    "http://127.0.0.1:8001",
+    "http://127.0.0.1:8002",
+    "http://127.0.0.1:8003"
 ]
-
-
-# Multiple requests ke time counter safely update karne ke liye
-lock = threading.Lock()
 
 
 # ============================================================
@@ -103,42 +115,43 @@ lock = threading.Lock()
 def load_balance(path):
 
     # ========================================================
-    # WEIGHTED LEAST CONNECTION
+    # IP HASH SERVER SELECTION
     # ========================================================
 
-    with lock:
+    client_ip = request.remote_addr
 
-        server = min(
-            BACKEND_SERVERS,
-            key=lambda server:
-                server["connections"] / server["weight"]
-        )
+    # Client IP ko hash mein convert
+    hash_value = int(
+        hashlib.md5(
+            client_ip.encode()
+        ).hexdigest(),
+        16
+    )
 
-        server["connections"] += 1
+    # Hash ke basis par server select
+    server_index = hash_value % len(BACKEND_SERVERS)
 
-        load_ratio = (
-            server["connections"] / server["weight"]
-        )
+    backend_url = BACKEND_SERVERS[server_index]
 
-        print(
-            f"Request forwarded to {server['url']} "
-            f"| Weight: {server['weight']} "
-            f"| Active connections: {server['connections']} "
-            f"| Load Ratio: {load_ratio:.2f}"
-        )
+    print(
+        f"Client IP: {client_ip} "
+        f"| Hash: {hash_value} "
+        f"| Forwarded to: {backend_url}"
+    )
 
     try:
 
-        backend_url = server["url"]
-
+        # Backend path
         if path:
             backend_url += "/" + path
 
+        # Backend request
         response = requests.get(
             backend_url,
             timeout=15
         )
 
+        # Response client ko return
         return Response(
             response.content,
             status=response.status_code,
@@ -156,24 +169,6 @@ def load_balance(path):
             content_type="application/json"
         )
 
-    finally:
-
-        with lock:
-
-            server["connections"] -= 1
-
-            load_ratio = (
-                server["connections"] / server["weight"]
-            )
-
-            print(
-                f"Request completed on "
-                f"{server['url']} "
-                f"| Weight: {server['weight']} "
-                f"| Active connections: {server['connections']} "
-                f"| Load Ratio: {load_ratio:.2f}"
-            )
-
 
 # ============================================================
 # LOAD BALANCER START
@@ -182,15 +177,8 @@ def load_balance(path):
 if __name__ == "__main__":
 
     print(
-        "Flask Weighted Least Connections "
-        "Load Balancer running on port 8000"
-    )
-
-    print(
-        "Weights: "
-        "8001=3, "
-        "8002=2, "
-        "8003=1"
+        "Flask IP Hash Load Balancer "
+        "running on port 8000"
     )
 
     app.run(
