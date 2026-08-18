@@ -2,3 +2,6 @@ venv/
 __pycache__/
 *.pyc
 jmeter.log
+.env
+results.jtl
+jmeter-report/
