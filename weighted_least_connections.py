@@ -1,4 +1,5 @@
-from flask import Flask, Response
+
+from flask import Flask, Response, request
 import requests
 import threading
 
@@ -14,18 +15,15 @@ BACKEND_SERVERS = [
     {
         "url": "http://127.0.0.1:8001",
         "weight": 3,
-        "connections": 0
     },
     {
         "url": "http://127.0.0.1:8002",
         "weight": 2,
-        "connections": 0
     },
     {
         "url": "http://127.0.0.1:8003",
         "weight": 1,
-        "connections": 0
-    }
+    },
 ]
 
 
@@ -37,60 +35,159 @@ lock = threading.Lock()
 
 
 # ============================================================
-# LOAD BALANCER ROUTE
+# GET BACKEND ACTIVE CONNECTIONS
 # ============================================================
 
-@app.route("/", defaults={"path": ""}, methods=["GET"])
-@app.route("/<path:path>", methods=["GET"])
+def get_active_connections(server):
+
+    try:
+
+        response = requests.get(
+            f"{server['url']}/status",
+            timeout=2,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        return data.get(
+            "active_connections",
+            0,
+        )
+
+    except requests.RequestException as error:
+
+        print(
+            f"Health check failed "
+            f"| Server: {server['url']} "
+            f"| Error: {error}"
+        )
+
+        return None
+
+
+# ============================================================
+# SELECT SERVER
+# WEIGHTED LEAST CONNECTIONS
+# ============================================================
+
+def select_server():
+
+    best_server = None
+    best_load = float("inf")
+
+    for server in BACKEND_SERVERS:
+
+        active_connections = get_active_connections(
+            server
+        )
+
+        # Server unavailable
+        if active_connections is None:
+
+            continue
+
+        weight = server["weight"]
+
+        # Weighted Least Connections formula
+        load = active_connections / weight
+
+        print(
+            f"{server['url']} "
+            f"| Weight: {weight} "
+            f"| Active Connections: "
+            f"{active_connections} "
+            f"| Load: {load:.2f}"
+        )
+
+        if load < best_load:
+
+            best_load = load
+            best_server = server
+
+    return best_server
+
+
+# ============================================================
+# LOAD BALANCER ROUTES
+# ============================================================
+
+@app.route(
+    "/",
+    defaults={"path": ""},
+    methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+    ],
+)
+@app.route(
+    "/<path:path>",
+    methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+    ],
+)
 def load_balance(path):
 
     # ========================================================
-    # WEIGHTED LEAST CONNECTION SELECTION
+    # SELECT BACKEND
     # ========================================================
 
     with lock:
 
-        backend_server = min(
-            BACKEND_SERVERS,
-            key=lambda server:
-                server["connections"] / server["weight"]
+        backend_server = select_server()
+
+    if backend_server is None:
+
+        return Response(
+            '{"error": "No backend server available"}',
+            status=503,
+            content_type="application/json",
         )
 
-        # Increase active connections
-        backend_server["connections"] += 1
+    backend_url = backend_server["url"]
 
-        backend_url = backend_server["url"]
+    # ========================================================
+    # BUILD BACKEND URL
+    # ========================================================
 
-        current_load = (
-            backend_server["connections"]
-            / backend_server["weight"]
-        )
+    if path:
 
-        print(
-            f"Weighted Least Connections "
-            f"| Forwarded to: {backend_url} "
-            f"| Weight: {backend_server['weight']} "
-            f"| Active Connections: "
-            f"{backend_server['connections']} "
-            f"| Load: {current_load:.2f}"
-        )
+        backend_url += "/" + path
+
+    print(
+        f"Weighted Least Connections "
+        f"| Method: {request.method} "
+        f"| Forwarded to: {backend_server['url']}"
+    )
 
     try:
 
         # ====================================================
-        # BACKEND PATH
+        # FORWARD REQUEST
         # ====================================================
 
-        if path:
-            backend_url += "/" + path
+        headers = {}
 
-        # ====================================================
-        # SEND REQUEST
-        # ====================================================
+        content_type = request.headers.get(
+            "Content-Type"
+        )
 
-        response = requests.get(
-            backend_url,
-            timeout=15
+        if content_type:
+
+            headers["Content-Type"] = content_type
+
+        response = requests.request(
+            method=request.method,
+            url=backend_url,
+            headers=headers,
+            data=request.get_data(),
+            timeout=15,
         )
 
         # ====================================================
@@ -102,56 +199,39 @@ def load_balance(path):
             status=response.status_code,
             content_type=response.headers.get(
                 "Content-Type",
-                "application/json"
-            )
+                "application/json",
+            ),
         )
 
-    except requests.RequestException:
+    except requests.RequestException as error:
+
+        print(
+            f"Backend request failed "
+            f"| Server: {backend_server['url']} "
+            f"| Error: {error}"
+        )
 
         return Response(
             '{"error": "Backend server unavailable"}',
             status=503,
-            content_type="application/json"
+            content_type="application/json",
         )
-
-    finally:
-
-        # ====================================================
-        # REQUEST COMPLETED
-        # DECREASE CONNECTION COUNT
-        # ====================================================
-
-        with lock:
-
-            backend_server["connections"] -= 1
-
-            current_load = (
-                backend_server["connections"]
-                / backend_server["weight"]
-            )
-
-            print(
-                f"Connection completed "
-                f"| Server: {backend_server['url']} "
-                f"| Active Connections: "
-                f"{backend_server['connections']} "
-                f"| Load: {current_load:.2f}"
-            )
 
 
 # ============================================================
-# START LOAD BALANCER
+# LOAD BALANCER START
 # ============================================================
 
 if __name__ == "__main__":
 
     print(
-        "Flask Weighted Least Connections Load Balancer "
-        "running on port 8000"
+        "Flask Weighted Least Connections "
+        "Load Balancer running on port 8000"
     )
 
     app.run(
         host="127.0.0.1",
         port=8000,
-        threaded=True
+        threaded=True,
     )
+

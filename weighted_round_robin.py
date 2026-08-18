@@ -1,4 +1,5 @@
-from flask import Flask, Response
+
+from flask import Flask, Response, request
 import requests
 import threading
 
@@ -35,13 +36,14 @@ weighted_servers = []
 for server in BACKEND_SERVERS:
 
     for _ in range(server["weight"]):
+
         weighted_servers.append(server["url"])
 
 
 # Current server index
 current_server = 0
 
-# Lock for thread-safe access
+# Thread-safe access
 lock = threading.Lock()
 
 
@@ -49,8 +51,27 @@ lock = threading.Lock()
 # LOAD BALANCER ROUTE
 # ============================================================
 
-@app.route("/", defaults={"path": ""}, methods=["GET"])
-@app.route("/<path:path>", methods=["GET"])
+@app.route(
+    "/",
+    defaults={"path": ""},
+    methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    ]
+)
+@app.route(
+    "/<path:path>",
+    methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    ]
+)
 def load_balance(path):
 
     global current_server
@@ -69,22 +90,41 @@ def load_balance(path):
 
     print(
         f"Weighted Round Robin "
+        f"| Method: {request.method} "
         f"| Forwarded to: {backend_url}"
     )
 
+    # ========================================================
+    # BACKEND PATH
+    # ========================================================
+
+    if path:
+
+        backend_url += "/" + path
+
     try:
 
-        # Backend path
-        if path:
-            backend_url += "/" + path
+        # ====================================================
+        # FORWARD REQUEST
+        # ====================================================
 
-        # Backend request
-        response = requests.get(
-            backend_url,
-            timeout=15
+        response = requests.request(
+            method=request.method,
+            url=backend_url,
+            headers={
+                "Content-Type": request.headers.get(
+                    "Content-Type",
+                    "application/json"
+                )
+            },
+            data=request.get_data(),
+            timeout=15,
         )
 
-        # Response client ko return
+        # ====================================================
+        # RETURN RESPONSE
+        # ====================================================
+
         return Response(
             response.content,
             status=response.status_code,
@@ -110,8 +150,8 @@ def load_balance(path):
 if __name__ == "__main__":
 
     print(
-        "Flask Weighted Round Robin Load Balancer "
-        "running on port 8000"
+        "Flask Weighted Round Robin "
+        "Load Balancer running on port 8000"
     )
 
     app.run(
@@ -119,3 +159,4 @@ if __name__ == "__main__":
         port=8000,
         threaded=True
     )
+

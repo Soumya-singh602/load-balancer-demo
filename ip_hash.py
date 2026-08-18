@@ -1,6 +1,6 @@
+
 from flask import Flask, Response, request
 import requests
-import hashlib
 
 
 app = Flask(__name__)
@@ -13,57 +13,57 @@ app = Flask(__name__)
 BACKEND_SERVERS = [
     "http://127.0.0.1:8001",
     "http://127.0.0.1:8002",
-    "http://127.0.0.1:8003"
+    "http://127.0.0.1:8003",
 ]
 
 
 # ============================================================
-# IP HASH SERVER SELECTION
+# IP HASH FUNCTION
 # ============================================================
 
-def get_server_from_ip(client_ip):
+def get_server_by_ip(client_ip):
 
-    # --------------------------------------------------------
-    # Client IP ko bytes mein convert karna
-    # --------------------------------------------------------
+    # Convert IP into numeric hash
+    hash_value = 0
 
-    ip_bytes = client_ip.encode("utf-8")
+    for character in client_ip:
 
-    # --------------------------------------------------------
-    # SHA-256 hash generate karna
-    # --------------------------------------------------------
+        hash_value = (
+            hash_value * 31
+            + ord(character)
+        )
 
-    hash_value = hashlib.sha256(ip_bytes).hexdigest()
-
-    # --------------------------------------------------------
-    # Hash ko integer mein convert karna
-    # --------------------------------------------------------
-
-    hash_number = int(hash_value, 16)
-
-    # --------------------------------------------------------
-    # Backend server index calculate karna
-    # --------------------------------------------------------
-
-    server_index = hash_number % len(BACKEND_SERVERS)
-
-    # --------------------------------------------------------
-    # Server URL + hash + index return karna
-    # --------------------------------------------------------
-
-    return (
-        BACKEND_SERVERS[server_index],
-        hash_value,
-        server_index
+    # Select backend server
+    server_index = (
+        hash_value % len(BACKEND_SERVERS)
     )
+
+    return BACKEND_SERVERS[server_index]
 
 
 # ============================================================
 # LOAD BALANCER ROUTE
 # ============================================================
 
-@app.route("/", defaults={"path": ""}, methods=["GET"])
-@app.route("/<path:path>", methods=["GET"])
+@app.route(
+    "/",
+    defaults={"path": ""},
+    methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+    ],
+)
+@app.route(
+    "/<path:path>",
+    methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+    ],
+)
 def load_balance(path):
 
     # ========================================================
@@ -76,38 +76,48 @@ def load_balance(path):
     # IP HASH SERVER SELECTION
     # ========================================================
 
-    backend_url, hash_value, server_index = get_server_from_ip(
-        client_ip
-    )
+    backend_url = get_server_by_ip(client_ip)
 
     print(
         f"IP Hash "
         f"| Client IP: {client_ip} "
-        f"| Hash: {hash_value} "
-        f"| Server Index: {server_index} "
         f"| Forwarded to: {backend_url}"
     )
+
+    # ========================================================
+    # BUILD BACKEND URL
+    # ========================================================
+
+    if path:
+
+        backend_url += "/" + path
 
     try:
 
         # ====================================================
-        # BACKEND PATH
+        # FORWARD REQUEST
         # ====================================================
 
-        if path:
-            backend_url += "/" + path
+        headers = {}
 
-        # ====================================================
-        # BACKEND REQUEST
-        # ====================================================
+        content_type = request.headers.get(
+            "Content-Type"
+        )
 
-        response = requests.get(
-            backend_url,
-            timeout=15
+        if content_type:
+
+            headers["Content-Type"] = content_type
+
+        response = requests.request(
+            method=request.method,
+            url=backend_url,
+            headers=headers,
+            data=request.get_data(),
+            timeout=15,
         )
 
         # ====================================================
-        # RETURN RESPONSE TO CLIENT
+        # RETURN RESPONSE
         # ====================================================
 
         return Response(
@@ -115,8 +125,8 @@ def load_balance(path):
             status=response.status_code,
             content_type=response.headers.get(
                 "Content-Type",
-                "application/json"
-            )
+                "application/json",
+            ),
         )
 
     except requests.RequestException as error:
@@ -130,12 +140,12 @@ def load_balance(path):
         return Response(
             '{"error": "Backend server unavailable"}',
             status=503,
-            content_type="application/json"
+            content_type="application/json",
         )
 
 
 # ============================================================
-# LOAD BALANCER START
+# START LOAD BALANCER
 # ============================================================
 
 if __name__ == "__main__":
@@ -148,5 +158,6 @@ if __name__ == "__main__":
     app.run(
         host="127.0.0.1",
         port=8000,
-        threaded=True
+        threaded=True,
     )
+

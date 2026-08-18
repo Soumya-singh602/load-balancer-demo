@@ -1,4 +1,4 @@
-from flask import Flask, Response
+from flask import Flask, Response, request
 import requests
 import threading
 
@@ -17,26 +17,36 @@ BACKEND_SERVERS = [
 ]
 
 
-# Current server index
 current_server = 0
 
-# Lock for thread-safe access
 lock = threading.Lock()
 
 
 # ============================================================
-# LOAD BALANCER ROUTE
+# LOAD BALANCER
 # ============================================================
 
-@app.route("/", defaults={"path": ""}, methods=["GET"])
-@app.route("/<path:path>", methods=["GET"])
+@app.route("/", defaults={"path": ""}, methods=[
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+])
+@app.route("/<path:path>", methods=[
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+])
 def load_balance(path):
 
     global current_server
 
-    # ========================================================
+    # --------------------------------------------------------
     # ROUND ROBIN SERVER SELECTION
-    # ========================================================
+    # --------------------------------------------------------
 
     with lock:
 
@@ -48,22 +58,32 @@ def load_balance(path):
 
     print(
         f"Round Robin "
+        f"| Method: {request.method} "
         f"| Forwarded to: {backend_url}"
     )
 
     try:
 
-        # Backend path
         if path:
             backend_url += "/" + path
 
-        # Backend request
-        response = requests.get(
-            backend_url,
-            timeout=15
+        # ----------------------------------------------------
+        # FORWARD REQUEST
+        # ----------------------------------------------------
+
+        response = requests.request(
+            method=request.method,
+            url=backend_url,
+            headers={
+                "Content-Type": request.headers.get(
+                    "Content-Type",
+                    "application/json"
+                )
+            },
+            data=request.get_data(),
+            timeout=15,
         )
 
-        # Response client ko return
         return Response(
             response.content,
             status=response.status_code,
@@ -73,7 +93,11 @@ def load_balance(path):
             )
         )
 
-    except requests.RequestException:
+    except requests.RequestException as error:
+
+        print(
+            f"Backend error: {error}"
+        )
 
         return Response(
             '{"error": "Backend server unavailable"}',
@@ -83,7 +107,7 @@ def load_balance(path):
 
 
 # ============================================================
-# LOAD BALANCER START
+# START LOAD BALANCER
 # ============================================================
 
 if __name__ == "__main__":
