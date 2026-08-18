@@ -23,7 +23,7 @@ from database.replica import get_replica_connection
 # ============================================================
 
 if len(sys.argv) < 2:
-    print("Usage: python api_server.py <port>")
+    print("Usage: python backend_server.py <port>")
     sys.exit(1)
 
 PORT = int(sys.argv[1])
