@@ -1,4 +1,3 @@
-
 from flask import Flask, jsonify, request
 import sys
 import time
@@ -6,6 +5,9 @@ import time
 from database.crud import (
     create_user,
     get_users,
+    get_user,
+    search_users,
+    count_users,
     update_user,
     delete_user,
 )
@@ -21,6 +23,20 @@ app = Flask(__name__)
 
 # Active connections count
 active_connections = 0
+
+
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
+@app.route("/health", methods=["GET"])
+def health():
+
+    return jsonify({
+        "status": "healthy",
+        "server": f"Server-{PORT}",
+        "port": PORT,
+    })
 
 
 # ============================================================
@@ -77,7 +93,7 @@ def status():
 
 
 # ============================================================
-# GET USERS
+# GET ALL USERS
 # READ → REPLICA
 # ============================================================
 
@@ -97,6 +113,77 @@ def users_list():
             }
             for user in users
         ],
+    })
+
+
+# ============================================================
+# SEARCH USERS
+# READ → REPLICA
+# ============================================================
+
+@app.route("/users/search", methods=["GET"])
+def users_search():
+
+    search_term = request.args.get("q", "")
+
+    users = search_users(search_term)
+
+    return jsonify({
+        "server": f"Server-{PORT}",
+        "database": "replica",
+        "search": search_term,
+        "users": [
+            {
+                "id": user[0],
+                "name": user[1],
+                "email": user[2],
+            }
+            for user in users
+        ],
+    })
+
+
+# ============================================================
+# COUNT USERS
+# READ → REPLICA
+# ============================================================
+
+@app.route("/users/count", methods=["GET"])
+def users_count():
+
+    total = count_users()
+
+    return jsonify({
+        "server": f"Server-{PORT}",
+        "database": "replica",
+        "total_users": total,
+    })
+
+
+# ============================================================
+# GET SINGLE USER
+# READ → REPLICA
+# ============================================================
+
+@app.route("/users/<int:user_id>", methods=["GET"])
+def user_detail(user_id):
+
+    user = get_user(user_id)
+
+    if user is None:
+
+        return jsonify({
+            "error": "User not found"
+        }), 404
+
+    return jsonify({
+        "server": f"Server-{PORT}",
+        "database": "replica",
+        "user": {
+            "id": user[0],
+            "name": user[1],
+            "email": user[2],
+        },
     })
 
 
@@ -201,4 +288,3 @@ if __name__ == "__main__":
         port=PORT,
         threaded=True
     )
-
