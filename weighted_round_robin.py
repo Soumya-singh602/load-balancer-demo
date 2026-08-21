@@ -1,7 +1,7 @@
-
 from flask import Flask, Response, request
 import requests
 import threading
+from rate_limiter import is_allowed
 
 
 app = Flask(__name__)
@@ -75,6 +75,26 @@ lock = threading.Lock()
 def load_balance(path):
 
     global current_server
+
+    # ========================================================
+    # RATE LIMITING
+    # ========================================================
+
+    client_ip = request.remote_addr
+
+    if not is_allowed(client_ip):
+
+        print(
+            f"Rate Limit Exceeded "
+            f"| IP: {client_ip}"
+        )
+
+        return Response(
+            '{"error": "Rate limit exceeded", '
+            '"message": "Too many requests. Try again later."}',
+            status=429,
+            content_type="application/json"
+        )
 
     # ========================================================
     # WEIGHTED ROUND ROBIN SERVER SELECTION
@@ -159,4 +179,3 @@ if __name__ == "__main__":
         port=8000,
         threaded=True
     )
-
