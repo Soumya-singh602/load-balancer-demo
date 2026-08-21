@@ -1,30 +1,34 @@
+
 # ⚡ Distributed Load Balancer & Database Sharding System
 
-A **distributed backend system built with Python, Flask, and PostgreSQL** that demonstrates load balancing, horizontal database sharding, Primary–Replica replication, read/write routing, failure handling, and concurrent performance testing.
+A **distributed backend system built with Python, Flask, PostgreSQL, and Redis** that demonstrates load balancing, horizontal database sharding, Primary–Replica replication, read/write routing, Redis-based rate limiting, failure handling, and concurrent performance testing.
 
-The project is designed to demonstrate practical concepts used in **scalable and distributed backend systems**.
+The project demonstrates practical concepts used in building **scalable, reliable, and distributed backend systems**.
 
 ---
 
 ## 🚀 Key Features
 
-* ⚖️ **6 Load Balancing Algorithms**
-* 🔄 Round Robin
-* ⚖️ Weighted Round Robin
-* 🔗 Least Connections
-* ⚖️ Weighted Least Connections
-* 🌐 IP Hash
-* 🎲 Random Selection
-* 🗄️ **PostgreSQL Database Sharding**
-* 🔁 **Primary–Replica Streaming Replication**
-* 📖 Read / Write Database Routing
-* 🖥️ 3 Flask Backend Servers
-* ❤️ Health & Status Monitoring
-* 🛡️ Backend Failure Handling
-* 🧪 Postman API Testing
-* 📊 Apache JMeter Load Testing
-* 🚀 300 Concurrent User Testing
-* 🔍 WAL / LSN Replication Verification
+- ⚖️ **6 Load Balancing Algorithms**
+  - Round Robin
+  - Weighted Round Robin
+  - Least Connections
+  - Weighted Least Connections
+  - IP Hash
+  - Random Selection
+
+- 🗄️ **PostgreSQL Database Sharding**
+- 🔁 **Primary–Replica Streaming Replication**
+- 📖 **Read / Write Database Routing**
+- 🛡️ **Redis-Based Rate Limiting**
+- ⏱️ **Redis TTL-Based Request Expiration**
+- 🖥️ **3 Flask Backend Servers**
+- ❤️ **Health & Status Monitoring**
+- 🛡️ **Backend Failure Handling**
+- 🧪 **Postman API Testing**
+- 📊 **Apache JMeter Load Testing**
+- 🚀 **300 Concurrent User Testing**
+- 🔍 **WAL / LSN Replication Verification**
 
 ---
 
@@ -33,6 +37,12 @@ The project is designed to demonstrate practical concepts used in **scalable and
 ```text
                          Client
                     Postman / JMeter
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │  Rate Limiter   │
+                  │     Redis       │
+                  └────────┬────────┘
                            │
                            ▼
                   ┌─────────────────┐
@@ -60,7 +70,7 @@ The project is designed to demonstrate practical concepts used in **scalable and
                  │                   │
              Replica              Replica
               :5434                :5436
-```
+````
 
 ---
 
@@ -101,6 +111,7 @@ Each shard contains its own Primary and Replica database.
 
 ```text
 POST / PUT / DELETE  → Shard Primary
+
 GET / SEARCH / COUNT → Shard Replica
 ```
 
@@ -112,6 +123,7 @@ The API response exposes the selected **server, shard, primary port, and replica
 
 ```text
 Shard 1
+
 Primary :5432
      │
      │ WAL Streaming
@@ -120,6 +132,7 @@ Replica :5434
 
 
 Shard 2
+
 Primary :5435
      │
      │ WAL Streaming
@@ -127,7 +140,7 @@ Primary :5435
 Replica :5436
 ```
 
-Replication is verified using PostgreSQL:
+Replication is verified using:
 
 ```sql
 SELECT pg_is_in_recovery();
@@ -136,11 +149,70 @@ SELECT pg_is_in_recovery();
 Expected:
 
 ```text
-Primary  → f
-Replica  → t
+Primary → f
+Replica → t
 ```
 
 Replication status can also be inspected using `pg_stat_replication` and WAL/LSN positions.
+
+---
+
+## 🛡️ Redis Rate Limiting
+
+Redis is used as a centralized in-memory store for request counters.
+
+Current configuration:
+
+```text
+Rate Limit: 10 requests
+Time Window: 60 seconds
+```
+
+### Rate Limiting Flow
+
+```text
+Client Request
+      │
+      ▼
+ Rate Limiter
+      │
+      ▼
+   Redis
+      │
+      ├── Request Count < 10 → Allow
+      │
+      └── Request Count ≥ 10 → HTTP 429
+```
+
+When the request limit is exceeded, the API returns:
+
+```text
+HTTP 429 Too Many Requests
+```
+
+Redis TTL automatically expires the rate-limit key after the configured time window.
+
+After expiration, the client can start a **new request window**.
+
+Example Redis key:
+
+```text
+rate_limit:127.0.0.1
+```
+
+Check request count:
+
+```bash
+redis-cli GET rate_limit:127.0.0.1
+```
+
+Check remaining expiration time:
+
+```bash
+redis-cli TTL rate_limit:127.0.0.1
+```
+
+This provides centralized rate limiting across the distributed backend architecture.
 
 ---
 
@@ -181,12 +253,14 @@ Used for:
 
 * CRUD testing
 * Shard routing verification
-* Primary/Replica routing
+* Primary / Replica routing
 * Health checks
 * Search and count APIs
-* Failure testing
+* Rate limiting
+* Redis TTL verification
+* Backend failure testing
 
-Example response:
+### Example Response
 
 ```json
 {
@@ -200,7 +274,7 @@ Example response:
 
 ### Apache JMeter
 
-The system is tested with **300 concurrent users**:
+The system is tested with **300 concurrent users**.
 
 ```text
 300 Concurrent Users
@@ -223,6 +297,7 @@ Measured metrics include:
 * Error Rate
 * Concurrent Requests
 * Backend Distribution
+* Rate-Limit Responses
 
 ---
 
@@ -231,6 +306,8 @@ Measured metrics include:
 Backend servers can be stopped independently to test failure scenarios.
 
 The load-balancing layer detects unavailable backends and handles failed requests appropriately.
+
+This demonstrates basic **fault tolerance and backend availability handling**.
 
 ---
 
@@ -247,6 +324,9 @@ load-balancer-demo/
 ├── weighted_least_connections.py
 ├── ip_hash.py
 ├── random_selection.py
+│
+├── rate_limiter.py
+├── redis_rate_limiter.py
 │
 ├── database/
 │   ├── crud.py
@@ -266,25 +346,33 @@ load-balancer-demo/
 
 ## 🛠️ Tech Stack
 
-**Backend**
+### Backend
 
 * Python 3
 * Flask
 * Threading
 * Requests
 
-**Database**
+### Database
 
 * PostgreSQL
 * psycopg2
 * Streaming Replication
 * WAL / LSN
+* Horizontal Sharding
 
-**Testing & Tools**
+### Caching & Rate Limiting
+
+* Redis
+* Python Redis Client
+* Redis TTL
+
+### Testing & Tools
 
 * Postman
 * Apache JMeter
 * Git / GitHub
+* Linux / Ubuntu
 
 ---
 
@@ -305,11 +393,37 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Start Redis
+
+```bash
+sudo redis-server /etc/redis/redis.conf
+```
+
+Verify Redis:
+
+```bash
+redis-cli ping
+```
+
+Expected:
+
+```text
+PONG
+```
+
 ### Start Backend Servers
+
+Run each server in a separate terminal:
 
 ```bash
 python backend_server.py 8001
+```
+
+```bash
 python backend_server.py 8002
+```
+
+```bash
 python backend_server.py 8003
 ```
 
@@ -331,7 +445,7 @@ http://127.0.0.1:8000
 
 This project brings together:
 
-**Load Balancing + Database Sharding + Replication + Read/Write Separation + REST APIs + Failure Handling + Concurrency + Performance Testing**
+**Load Balancing + Database Sharding + Primary–Replica Replication + Read/Write Separation + Redis Rate Limiting + REST APIs + Failure Handling + Concurrent Performance Testing**
 
 to demonstrate the architecture and implementation principles of a **scalable distributed backend system**.
 
@@ -343,4 +457,7 @@ to demonstrate the architecture and implementation principles of a **scalable di
 
 **Backend & Distributed Systems Project**
 
-Python • Flask • PostgreSQL • Load Balancing • Database Sharding • Apache JMeter
+Python • Flask • PostgreSQL • Redis • Load Balancing • Database Sharding • Apache JMeter
+
+```
+```
