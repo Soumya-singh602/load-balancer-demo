@@ -14,7 +14,7 @@ WINDOW = 60
 # ============================================================
 
 redis_client = redis.Redis(
-    host="127.0.0.1",
+    host="172.22.153.124",
     port=6379,
     db=0,
     decode_responses=True,
